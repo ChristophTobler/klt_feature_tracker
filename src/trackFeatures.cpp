@@ -50,14 +50,17 @@
 #include <cstring>
 
 // "persistent" local variables
-static cv::Mat prev_img;
-static std::vector<cv::Point2f> prev_corners;
-static std::vector<cv::Point2f> prev_corners_right;
+// static cv::Mat prev_img;
+// static std::vector<cv::Point2f> prev_corners;
+// static std::vector<cv::Point2f> prev_corners_right;
 static std::vector<unsigned char> prev_status(100, 0);
+
+cv::Mat* prev_img = new cv::Mat[4];
+std::vector<cv::Point2f>* prev_corners = new std::vector<cv::Point2f>[4];
 
 // local functions
 static void initMorePoints(const cv::Mat &img_l, const cv::Mat &img_r, std::vector<int> &updateVect, std::vector<cv::Point2f> &z_all_l,
-        std::vector<cv::Point2f> &z_all_r, int stereo);
+        std::vector<cv::Point2f> &z_all_r, int stereo, int camNumbe);
 bool stereoMatchOpticalFlow(const cv::Mat &img_l, const cv::Mat &img_r, std::vector<cv::KeyPoint> &keypointsL, std::vector<cv::Point2f> &leftPoints,
         std::vector<cv::Point2f> &rightPoints);
 bool compareMatch(const cv::DMatch &first, const cv::DMatch &second);
@@ -65,7 +68,7 @@ bool compareKeypoints(const cv::KeyPoint &first, const cv::KeyPoint &second);
 
 // corners (z_all_l, z_all_r) and status are output variables
 void trackFeatures(const cv::Mat &img_l, const cv::Mat &img_r, std::vector<cv::Point2f> &features_l, std::vector<cv::Point2f> &features_r, std::vector<int> &status,
-        int stereo) {
+        int stereo, int camNumber) {
     if (!img_l.data)
         throw "Left image is invalid";
     if (stereo && !img_r.data)
@@ -90,24 +93,24 @@ void trackFeatures(const cv::Mat &img_l, const cv::Mat &img_r, std::vector<cv::P
     std::vector<cv::Point2f> cur_corners, right_corners;
     std::vector<float> error;
 
-    if (!prev_img.empty()) {
-        if (!prev_corners.empty()) {
-            cv::calcOpticalFlowPyrLK(prev_img, img_l, prev_corners, cur_corners, status_left, error, cv::Size(9, 9), 3);
-            prev_corners = cur_corners;
+    if (!prev_img[camNumber].empty()) {
+        if (!prev_corners[camNumber].empty()) {
+            cv::calcOpticalFlowPyrLK(prev_img[camNumber], img_l, prev_corners[camNumber], cur_corners, status_left, error, cv::Size(9, 9), 3);
+            prev_corners[camNumber] = cur_corners;
             if (stereo == 2)
-                cv::calcOpticalFlowPyrLK(img_l, img_r, prev_corners, right_corners, status_right, error, cv::Size(9, 9), 3);
+                cv::calcOpticalFlowPyrLK(img_l, img_r, prev_corners[camNumber], right_corners, status_right, error, cv::Size(9, 9), 3);
 
-            for (size_t i = 0; i < prev_corners.size() && i < numPoints; ++i) {
+            for (size_t i = 0; i < prev_corners[camNumber].size() && i < numPoints; ++i) {
                 if (!(prev_status[i] && status_left[i] && (stereo != 2 || status_right[i])))
                     prev_status[i] = 0;
 
                 if (prev_status[i] == 1) {
-                    if (prev_corners[i].x < 0 || prev_corners[i].x > img_l.cols || prev_corners[i].y < 0 || prev_corners[i].y > img_l.rows
+                    if (prev_corners[camNumber][i].x < 0 || prev_corners[camNumber][i].x > img_l.cols || prev_corners[camNumber][i].y < 0 || prev_corners[camNumber][i].y > img_l.rows
                             || ((stereo == 2)
                                     && (right_corners[i].x < 0 || right_corners[i].x > img_l.cols || right_corners[i].y < 0 || right_corners[i].y > img_l.rows))) {
                         status[i] = 0;
                     } else {
-                        features_l[i] = prev_corners[i];
+                        features_l[i] = prev_corners[camNumber][i];
 
                         if (stereo == 2) {
                             features_r[i] = right_corners[i];
@@ -122,16 +125,16 @@ void trackFeatures(const cv::Mat &img_l, const cv::Mat &img_r, std::vector<cv::P
         }
     }
 
-    img_l.copyTo(prev_img);
+    img_l.copyTo(prev_img[camNumber]);
 
     // initialize new points if needed
-    initMorePoints(img_l, img_r, status, features_l, features_r, stereo);
+    initMorePoints(img_l, img_r, status, features_l, features_r, stereo, camNumber);
 }
 
 // ==== local functions, hidden from outside this file ====
 
 static void initMorePoints(const cv::Mat &img_l, const cv::Mat &img_r, std::vector<int> &updateVect, std::vector<cv::Point2f> &z_all_l,
-        std::vector<cv::Point2f> &z_all_r, int stereo) {
+        std::vector<cv::Point2f> &z_all_r, int stereo, int camNumber) {
     if (!img_l.data)
         throw "Left image is invalid";
     if (stereo && !img_r.data)
@@ -159,10 +162,10 @@ static void initMorePoints(const cv::Mat &img_l, const cv::Mat &img_r, std::vect
     std::vector<std::vector<int> > featuresPerBin(numBinsX, std::vector<int>(numBinsY, 0));
 
     // count the number of active features in each bin
-    for (int i = 0; i < prev_corners.size(); i++) {
+    for (int i = 0; i < prev_corners[camNumber].size(); i++) {
         if (updateVect[i] == 1) {
-            int binX = prev_corners[i].x / binWidth;
-            int binY = prev_corners[i].y / binHeight;
+            int binX = prev_corners[camNumber][i].x / binWidth;
+            int binY = prev_corners[camNumber][i].y / binHeight;
 
             if (binX >= numBinsX) {
                 printf("Warning: writing to binX out of bounds: %d >= %d\n", binX, numBinsX);
@@ -207,11 +210,11 @@ static void initMorePoints(const cv::Mat &img_l, const cv::Mat &img_r, std::vect
                     int new_pt_y = keypoints[newPtIdx].pt.y;
 
                     bool far_enough = true;
-                    for (int j = 0; j < prev_corners.size(); j++) {
+                    for (int j = 0; j < prev_corners[camNumber].size(); j++) {
                         if (prev_status[j] == 0)
                             continue;
-                        int existing_pt_x = prev_corners[j].x;
-                        int existing_pt_y = prev_corners[j].y;
+                        int existing_pt_x = prev_corners[camNumber][j].x;
+                        int existing_pt_y = prev_corners[camNumber][j].y;
                         if (abs(existing_pt_x - new_pt_x) < dist && abs(existing_pt_y - new_pt_y) < dist) {
                             far_enough = false;
                             unusedKeypoints.push_back(keypoints[newPtIdx]);
@@ -271,11 +274,11 @@ static void initMorePoints(const cv::Mat &img_l, const cv::Mat &img_r, std::vect
             int new_pt_y = unusedKeypoints[newPtIdx].pt.y;
 
             bool far_enough = true;
-            for (int j = 0; j < prev_corners.size(); j++) {
+            for (int j = 0; j < prev_corners[camNumber].size(); j++) {
                 if (prev_status[j] == 0)
                     continue;
-                int existing_pt_x = prev_corners[j].x;
-                int existing_pt_y = prev_corners[j].y;
+                int existing_pt_x = prev_corners[camNumber][j].x;
+                int existing_pt_y = prev_corners[camNumber][j].y;
                 if (abs(existing_pt_x - new_pt_x) < dist && abs(existing_pt_y - new_pt_y) < dist) {
                     far_enough = false;
                     break;
@@ -330,13 +333,13 @@ static void initMorePoints(const cv::Mat &img_l, const cv::Mat &img_r, std::vect
     if (leftPoints.size() < targetNumPoints)
         printf("Number of good matches: %d, desired: %d\n", (int) leftPoints.size(), targetNumPoints);
 
-    if (prev_corners.size() < updateVect.size())
-        prev_corners.resize(updateVect.size());
+    if (prev_corners[camNumber].size() < updateVect.size())
+        prev_corners[camNumber].resize(updateVect.size());
     int matches_idx = 0;
     for (int i = 0; i < updateVect.size(); i++) {
         if (updateVect[i] == 2) {
             if (matches_idx < leftPoints.size()) {
-                prev_corners[i] = leftPoints[matches_idx];
+                prev_corners[camNumber][i] = leftPoints[matches_idx];
                 prev_status[i] = 1;
 
                 z_all_l[i] = leftPoints[matches_idx];
