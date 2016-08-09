@@ -77,19 +77,22 @@ void trackFeatures(const cv::Mat &img_l, const cv::Mat &img_r, std::vector<cv::P
         throw "Right image is invalid";
 
     unsigned int numPoints = status.size();
-    features_l.resize(numPoints);
-    std::fill(features_l.begin(), features_l.end(), cv::Point2f(-100, -100));
-
-    features_r.resize(numPoints);
-    std::fill(features_r.begin(), features_r.end(), cv::Point2f(-100, -100));
-
     for (size_t i = 0; i < status.size() && i < numPoints; ++i) {
         if (status[i] == 1) {
+            prev_status[i] = 1;
+        } else if (status[i] == 3) { // if updateVect[i] == 3 -> feature was handed over from other camera
+            prev_corners[camNumber][i] = features_l[i];
             prev_status[i] = 1;
         } else {
             prev_status[i] = 0;  // if updateVect[i] == 0 feature is inactive, == 2 request new feature
         }
     }
+
+    features_l.resize(numPoints);
+    std::fill(features_l.begin(), features_l.end(), cv::Point2f(-100, -100));
+
+    features_r.resize(numPoints);
+    std::fill(features_r.begin(), features_r.end(), cv::Point2f(-100, -100));
 
     std::vector<unsigned char> status_left, status_right;
     std::vector<cv::Point2f> cur_corners, right_corners;
