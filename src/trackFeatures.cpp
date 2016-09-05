@@ -187,8 +187,14 @@ static void initMorePoints(const cv::Mat &img_l, const cv::Mat &img_r, std::vect
 
     unsigned int dist = binWidth / targetFeaturesPerBin;
     // go through each cell and detect features
-    for (int x = 0; x < numBinsX; x++) {
-        for (int y = 0; y < numBinsY; y++) {
+    // start with inner bins
+    int binVecX[] = {1, 2, 0, 3};
+    int binVecY[] = {1, 2, 0, 3};
+    for (int h = 0; h < numBinsX; h++) {
+        for (int j = 0; j < numBinsY; j++) {
+            int x = binVecX[h];
+            int y = binVecY[j];
+
             int neededFeatures = std::max(0, targetFeaturesPerBin - featuresPerBin[x][y]);
 
             if (neededFeatures) {
